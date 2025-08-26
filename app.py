@@ -106,11 +106,45 @@ with app.app_context():
 # роуты
 @app.route("/")
 def index():
-    # main: section 'main' (возьмём самый свежий)
-    main = Article.query.filter_by(section="main").order_by(Article.created_at.desc()).first()
-    side = Article.query.filter_by(section="side").order_by(Article.created_at.desc()).limit(6).all()
-    lst = Article.query.filter(Article.section!="main").order_by(Article.created_at.desc()).all()
-    return render_template("index.html", main=main, side=side, list_articles=lst)
+    # получаем статьи из БД (примерные имена переменных у тебя уже были)
+    main_obj = Article.query.filter_by(section="main").order_by(Article.created_at.desc()).first()
+    side_objs = Article.query.filter_by(section="side").order_by(Article.created_at.desc()).limit(6).all()
+    list_objs = Article.query.filter(Article.section!="main").order_by(Article.created_at.desc()).all()
+
+    # Соберём словарь `news` в том виде, в котором старые шаблоны его ожидали
+    news = {
+        "main": None,
+        "side": [],
+        "list": []
+    }
+
+    if main_obj:
+        news["main"] = {
+            "title": main_obj.title,
+            "text": main_obj.text,
+            "slug": main_obj.slug
+        }
+
+    for s in side_objs:
+        news["side"].append({
+            "title": s.title,
+            "text": s.text,
+            "slug": s.slug
+        })
+
+    for a in list_objs:
+        news["list"].append({
+            "title": a.title,
+            "text": a.text,
+            "slug": a.slug
+        })
+
+    # Передаём и старый словарь `news`, и новые объекты — так шаблонам ничего не будет
+    return render_template("index.html",
+                           news=news,
+                           main=main_obj,
+                           side=side_objs,
+                           list_articles=list_objs)
 
 @app.route("/article/<slug>")
 def article_view(slug):
