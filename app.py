@@ -27,8 +27,7 @@ else:
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
-from scripts.import_articles import import_articles
-import_articles()
+
 
 # --- Model ---
 class Article(db.Model):
@@ -96,7 +95,6 @@ def init_db_and_import():
 
 with app.app_context():
     init_db_and_import()
-
 # --- Routes ---
 @app.route("/")
 def index():
