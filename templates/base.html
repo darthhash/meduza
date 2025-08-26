@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <title>Meduza Clone</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <header class="header">
+      <div class="logo">meduza</div>
+      <nav class="menu">
+        <a href="#">Новости</a>
+        <a href="#">Истории</a>
+        <a href="#">Разбор</a>
+        <a href="#">Подкасты</a>
+      </nav>
+    </header>
+
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

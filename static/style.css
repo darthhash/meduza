@@ -1,22 +1,61 @@
 body {
-    font-family: Arial, sans-serif;
-    max-width: 980px;
-    margin: auto;
-    padding: 20px;
-    background: #fafafa;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #f8f8f8;
+  color: #111;
 }
-header {
-    border-bottom: 1px solid #ccc;
-    margin-bottom: 20px;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
+
+.header {
+  background: #000;
+  color: #fff;
+  padding: 15px 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
-h1 { color: #222; margin:0; }
-.slogan { color: gray; margin:0; }
-section { margin-bottom: 20px; }
-form { margin-bottom: 30px; }
-textarea { width: 100%; height: 100px; }
-.main-news { background:#fff; padding:20px; border-radius:10px; }
-.side-news article, .news-list article { background:#fff; padding:15px; border-radius:10px; margin-bottom:10px; }
-.news-list { display:grid; grid-template-columns:1fr 1fr; gap:15px; }
+
+.header .logo {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.header .menu a {
+  color: #fff;
+  margin-left: 20px;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.container {
+  max-width: 900px;
+  margin: 40px auto;
+  padding: 0 15px;
+}
+
+.news-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 25px;
+}
+
+.news-item {
+  padding-bottom: 20px;
+  border-bottom: 1px solid #ddd;
+}
+
+.news-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.news-subtitle {
+  font-size: 15px;
+  color: #555;
+  margin: 0 0 5px;
+}
+
+.news-date {
+  font-size: 12px;
+  color: #999;
+}
