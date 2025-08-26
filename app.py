@@ -7,8 +7,13 @@ from sqlalchemy.exc import IntegrityError
 import re
 
 BASE_DIR = os.path.dirname(__file__)
-DATA_JSON = os.path.join(BASE_DIR, "data", "news.json")
-DB_PATH = os.path.join(BASE_DIR, "data", "news.db")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+print("DATA_DIR:", DATA_DIR)
+print("DATA_FILES:", os.listdir(DATA_DIR))
+
+DATA_JSON = os.path.join(DATA_DIR, "news.json")
+DB_PATH = os.path.join(DATA_DIR, "news.db")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "dev-secret")  # можно сменить в prod
@@ -171,7 +176,27 @@ def admin_delete(article_id):
     flash("Статья удалена", "success")
     return redirect(url_for("admin"))
 
+
+
+
+
+
+# ... далее конфиг SQLAlchemy как у тебя
+
+def init_db_and_import():
+    try:
+        need_import = not os.path.exists(DB_PATH)
+        db.create_all()
+        if need_import and os.path.exists(DATA_JSON):
+            with open(DATA_JSON, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # ... импорт как у тебя, внутри try/except
+    except Exception as e:
+        # логируем стек в stdout — Railway увидит его в логах
+        print("ERROR in init_db_and_import:", e)
+        traceback.print_exc()
 if __name__ == "__main__":
     # в продакшене запускать через gunicorn
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
+import os, traceback
