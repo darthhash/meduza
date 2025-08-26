@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='article.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='articles.css') }}">
 
 <article class="page">
   <header class="page-head">
@@ -10,10 +10,8 @@
     <div class="meta">Опубликовано: {{ article.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
   </header>
 
-  <!-- В БД хранится ПОЛНЫЙ HTML. Он может включать <figure class="article-hero">,
-       который добавит наш скрипт fetch_images_openverse.py -->
   <div class="prose">
-    {{ article.text | safe }}
+    {{ article_html | safe }}
   </div>
 
   <footer class="page-foot">
