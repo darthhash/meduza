@@ -137,3 +137,26 @@ body {
   .support-btn{ padding:6px 12px; font-size:13px; }
   .container{ padding:14px; }
 }
+/* обнуление цвета и подчёркивания у ссылок-новостей */
+a.link-reset {
+  color: inherit;
+  text-decoration: none;
+}
+a.link-reset:hover {
+  text-decoration: underline;
+}
+
+/* на всякий случай — внутри карточек новостей */
+.news-item a, .side-title a, .list-title a, .hero-title a {
+  color: inherit;
+  text-decoration: none;
+}
+.news-item a:hover, .side-title a:hover, .list-title a:hover, .hero-title a:hover {
+  text-decoration: underline;
+}
+/* link reset: убираем синий цвет и подчёркивание у ссылок в новостях */
+a.link-reset { color: inherit; text-decoration: none; }
+a.link-reset:hover { text-decoration: underline; }
+.hero-title a, .side-title a, .list-title a { color: inherit; text-decoration: none; }
+.hero-title a:hover, .side-title a:hover, .list-title a:hover { text-decoration: underline; }
+
