@@ -4,14 +4,14 @@
 <article class="hero">
   <div class="hero-left">
     <div class="kicker">РАЗБОР</div>
-    <h1 class="hero-title">{{ news.main.title }}</h1>
+    <h1 class="hero-title"><a href="{{ url_for('article', slug=news.main.slug) }}">{{ news.main.title }}</a></h1>
     <p class="hero-dek">{{ news.main.text }}</p>
   </div>
   <div class="hero-right">
     {% if news.side|length > 0 %}
       {% for item in news.side %}
       <div class="side-card">
-        <h3 class="side-title">{{ item.title }}</h3>
+        <h3 class="side-title"><a href="{{ url_for('article', slug=item.slug) }}">{{ item.title }}</a></h3>
         <p class="side-dek">{{ item.text }}</p>
       </div>
       {% endfor %}
@@ -22,7 +22,7 @@
 <section class="list-grid">
   {% for item in news.list %}
   <article class="list-item">
-    <h4 class="list-title">{{ item.title }}</h4>
+    <h4 class="list-title"><a href="{{ url_for('article', slug=item.slug) }}">{{ item.title }}</a></h4>
     <p class="list-dek">{{ item.text }}</p>
   </article>
   {% endfor %}

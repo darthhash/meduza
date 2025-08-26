@@ -1,236 +1,178 @@
 import os
 import json
+import traceback
+import re
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, abort, flash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
-import re
 
 BASE_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
-print("DATA_DIR:", DATA_DIR)
-print("DATA_FILES:", os.listdir(DATA_DIR))
 
-DATA_JSON = os.path.join(DATA_DIR, "news.json")
-DB_PATH = os.path.join(DATA_DIR, "news.db")
-
+# --- Flask & DB config ---
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET", "dev-secret")  # можно сменить в prod
+app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
 
-# SQLite DB
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + DB_PATH
+# Prefer Railway DATABASE_URL (Postgres); fallback to local SQLite
+db_url = os.getenv("DATABASE_URL")
+if db_url:
+    # Allow postgres:// scheme
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    app.config["SQLALCHEMY_DATABASE_URI"] = db_url
+else:
+    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(DATA_DIR, "news.db")
+
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
-# модель статьи
+# --- Model ---
 class Article(db.Model):
+    __tablename__ = "articles"
     id = db.Column(db.Integer, primary_key=True)
-    slug = db.Column(db.String(200), unique=True, nullable=False, index=True)
-    title = db.Column(db.String(400), nullable=False)
-    text = db.Column(db.Text, nullable=False)
-    section = db.Column(db.String(50), nullable=False, default="list")  # main, side, list
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    slug = db.Column(db.String(255), unique=True, index=True, nullable=False)
+    title = db.Column(db.String(500), nullable=False)
+    text = db.Column(db.Text, default="")
+    section = db.Column(db.String(20), default="list")  # main | side | list
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "slug": self.slug,
-            "title": self.title,
-            "text": self.text,
-            "section": self.section,
-            "created_at": self.created_at.isoformat(),
-        }
+    def to_card(self):
+        return {"slug": self.slug, "title": self.title, "text": self.text}
 
-# утилита slug
-def slugify(value):
-    value = value.lower().strip()
-    # заменить кириллицу удобно: просто транслитерация упрощённая — но для простоты оставляем латинские и цифры
-    # сделаем простую транслитерацию для кириллицы
-    trans_map = {
-        'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z','и':'i','й':'i',
-        'к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f',
-        'х':'h','ц':'ts','ч':'ch','ш':'sh','щ':'shch','ы':'y','э':'e','ю':'yu','я':'ya','ь':'','ъ':''
-    }
-    out_chars = []
-    for ch in value:
-        if ch in trans_map:
-            out_chars.append(trans_map[ch])
-        else:
-            out_chars.append(ch)
-    value = "".join(out_chars)
-    # replace non-word with dash
-    value = re.sub(r'[^a-z0-9]+', '-', value)
-    value = re.sub(r'-{2,}', '-', value).strip('-')
-    if not value:
-        value = "article"
-    return value
+# --- utils ---
+TRANS = {
+    'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z','и':'i','й':'i',
+    'к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f',
+    'х':'h','ц':'ts','ч':'ch','ш':'sh','щ':'shch','ы':'y','э':'e','ю':'yu','я':'ya','ь':'','ъ':''
+}
+def slugify(value: str) -> str:
+    s = value.lower().strip()
+    s = "".join(TRANS.get(ch, ch) for ch in s)
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    return s or "article"
 
-# при первом запуске создадим БД и импортируем JSON (если БД ещё не создана)
+# --- init & import from data/news.json (one-time) ---
 def init_db_and_import():
-    need_import = not os.path.exists(DB_PATH)
     db.create_all()
-    if need_import and os.path.exists(DATA_JSON):
-        with open(DATA_JSON, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        # импорт main
-        def save_article(title, text, section):
-            slug_base = slugify(title)
-            slug = slug_base
-            i = 1
-            # обеспечить уникальность slug
-            while Article.query.filter_by(slug=slug).first():
-                i += 1
-                slug = f"{slug_base}-{i}"
-            a = Article(title=title, text=text, section=section, slug=slug)
-            db.session.add(a)
-            try:
-                db.session.commit()
-            except IntegrityError:
-                db.session.rollback()
+    # Check if empty DB; if yes, seed from data/news.json
+    has_any = db.session.query(Article.id).first() is not None
+    json_path = os.path.join(DATA_DIR, "news.json")
+    if not has_any and os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # main
+            m = data.get("main")
+            if m:
+                title = m.get("title","").strip()
+                text = m.get("text","").strip()
+                if title:
+                    a = Article(title=title, text=text, section="main", slug=slugify(title))
+                    db.session.add(a)
+            # side
+            for item in data.get("side", []):
+                title = (item.get("title") or "").strip()
+                text = (item.get("text") or "").strip()
+                if title:
+                    a = Article(title=title, text=text, section="side", slug=slugify(title))
+                    db.session.add(a)
+            # list
+            for item in data.get("list", []):
+                title = (item.get("title") or "").strip()
+                text = (item.get("text") or "").strip()
+                if title:
+                    a = Article(title=title, text=text, section="list", slug=slugify(title))
+                    db.session.add(a)
+            db.session.commit()
+            print("Seeded DB from data/news.json")
+        except Exception as e:
+            print("ERROR importing data/news.json:", e)
+            traceback.print_exc()
 
-        if "main" in data:
-            m = data["main"]
-            save_article(m.get("title","Главная новость"), m.get("text",""), "main")
-        if "side" in data:
-            for item in data["side"]:
-                save_article(item.get("title",""), item.get("text",""), "side")
-        if "list" in data:
-            for item in data["list"]:
-                save_article(item.get("title",""), item.get("text",""), "list")
-
-# старт
 with app.app_context():
     init_db_and_import()
 
-# роуты
+# --- Routes ---
 @app.route("/")
 def index():
-    # получаем статьи из БД (примерные имена переменных у тебя уже были)
+    # Build dict "news" to match templates/index.html expectations
     main_obj = Article.query.filter_by(section="main").order_by(Article.created_at.desc()).first()
     side_objs = Article.query.filter_by(section="side").order_by(Article.created_at.desc()).limit(6).all()
-    list_objs = Article.query.filter(Article.section!="main").order_by(Article.created_at.desc()).all()
+    list_objs = Article.query.filter(Article.section != "main").order_by(Article.created_at.desc()).all()
 
-    # Соберём словарь `news` в том виде, в котором старые шаблоны его ожидали
-    news = {
-        "main": None,
-        "side": [],
-        "list": []
-    }
-
+    news = {"main": None, "side": [], "list": []}
     if main_obj:
-        news["main"] = {
-            "title": main_obj.title,
-            "text": main_obj.text,
-            "slug": main_obj.slug
-        }
+        news["main"] = {"title": main_obj.title, "text": main_obj.text, "slug": main_obj.slug}
+    news["side"] = [ {"title": a.title, "text": a.text, "slug": a.slug} for a in side_objs ]
+    # list should exclude main; keep side and list combined like original "list"
+    news["list"] = [ {"title": a.title, "text": a.text, "slug": a.slug}
+                     for a in list_objs if a.section != "main" ]
+    return render_template("index.html", news=news)
 
-    for s in side_objs:
-        news["side"].append({
-            "title": s.title,
-            "text": s.text,
-            "slug": s.slug
-        })
-
-    for a in list_objs:
-        news["list"].append({
-            "title": a.title,
-            "text": a.text,
-            "slug": a.slug
-        })
-
-    # Передаём и старый словарь `news`, и новые объекты — так шаблонам ничего не будет
-    return render_template("index.html",
-                           news=news,
-                           main=main_obj,
-                           side=side_objs,
-                           list_articles=list_objs)
-
-@app.route("/article/<slug>")
-def article_view(slug):
-    a = Article.query.filter_by(slug=slug).first_or_404()
+@app.route("/news/<slug>")
+def article(slug):
+    a = Article.query.filter_by(slug=slug).first()
+    if not a:
+        abort(404)
     return render_template("article.html", article=a)
 
-# админка: добавление
-@app.route("/admin", methods=["GET", "POST"])
+# --- Admin (simple) ---
+@app.route("/admin")
 def admin():
+    items = Article.query.order_by(Article.created_at.desc()).all()
+    return render_template("admin.html", items=items)
+
+@app.route("/admin/new", methods=["GET","POST"])
+def admin_new():
     if request.method == "POST":
-        section = request.form.get("section", "list")
-        title = request.form.get("title", "").strip()
-        text = request.form.get("text", "").strip()
-        slug_raw = request.form.get("slug", "").strip()
-        if not title or not text:
-            flash("Заголовок и текст обязательны", "error")
-            return redirect(url_for("admin"))
-        slug_base = slugify(slug_raw if slug_raw else title)
-        slug = slug_base
-        i = 1
-        while Article.query.filter_by(slug=slug).first():
-            i += 1
-            slug = f"{slug_base}-{i}"
+        title = request.form.get("title","").strip()
+        text = request.form.get("text","").strip()
+        section = request.form.get("section","list")
+        slug = slugify(request.form.get("slug") or title)
+        if not title:
+            flash("Нужен title", "error")
+            return redirect(url_for("admin_new"))
         a = Article(title=title, text=text, section=section, slug=slug)
         db.session.add(a)
-        db.session.commit()
-        flash("Статья добавлена", "success")
-        return redirect(url_for("admin"))
-    articles = Article.query.order_by(Article.created_at.desc()).all()
-    return render_template("admin.html", articles=articles)
+        try:
+            db.session.commit()
+            flash("Создано", "success")
+            return redirect(url_for("admin"))
+        except IntegrityError:
+            db.session.rollback()
+            flash("Такой slug уже есть", "error")
+    return render_template("admin_edit.html", article=None)
 
-# редактирование
-@app.route("/admin/edit/<int:article_id>", methods=["GET", "POST"])
-def admin_edit(article_id):
-    a = Article.query.get_or_404(article_id)
+@app.route("/admin/<int:aid>/edit", methods=["GET","POST"])
+def admin_edit(aid):
+    a = Article.query.get_or_404(aid)
     if request.method == "POST":
-        a.title = request.form.get("title", a.title)
-        a.text = request.form.get("text", a.text)
-        section = request.form.get("section", a.section)
-        a.section = section
-        slug_raw = request.form.get("slug", a.slug)
-        slug_base = slugify(slug_raw)
-        slug = slug_base
-        i = 1
-        while True:
-            other = Article.query.filter_by(slug=slug).first()
-            if not other or other.id == a.id:
-                break
-            i += 1
-            slug = f"{slug_base}-{i}"
-        a.slug = slug
-        db.session.commit()
-        flash("Статья обновлена", "success")
-        return redirect(url_for("admin"))
+        a.title = request.form.get("title","").strip() or a.title
+        a.text = request.form.get("text","")
+        a.section = request.form.get("section", a.section)
+        slug = request.form.get("slug","").strip()
+        if slug:
+            a.slug = slugify(slug)
+        try:
+            db.session.commit()
+            flash("Сохранено", "success")
+            return redirect(url_for("admin"))
+        except IntegrityError:
+            db.session.rollback()
+            flash("Slug уже используется", "error")
     return render_template("admin_edit.html", article=a)
 
-# удаление
-@app.route("/admin/delete/<int:article_id>", methods=["POST"])
-def admin_delete(article_id):
-    a = Article.query.get_or_404(article_id)
+@app.route("/admin/<int:aid>/delete", methods=["POST"])
+def admin_delete(aid):
+    a = Article.query.get_or_404(aid)
     db.session.delete(a)
     db.session.commit()
-    flash("Статья удалена", "success")
+    flash("Удалено", "success")
     return redirect(url_for("admin"))
 
-
-
-
-
-
-# ... далее конфиг SQLAlchemy как у тебя
-
-def init_db_and_import():
-    try:
-        need_import = not os.path.exists(DB_PATH)
-        db.create_all()
-        if need_import and os.path.exists(DATA_JSON):
-            with open(DATA_JSON, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            # ... импорт как у тебя, внутри try/except
-    except Exception as e:
-        # логируем стек в stdout — Railway увидит его в логах
-        print("ERROR in init_db_and_import:", e)
-        traceback.print_exc()
 if __name__ == "__main__":
-    # в продакшене запускать через gunicorn
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
-import os, traceback

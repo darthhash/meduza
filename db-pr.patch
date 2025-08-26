@@ -1,0 +1,220 @@
+*** a/app.py
+--- b/app.py
+@@
+-from flask import Flask, render_template, jsonify, request, abort
++from flask import Flask, render_template, jsonify, request, abort
++import os
++from datetime import datetime
++
++# ── DB ─────────────────────────────────────────────────────────────────────────
++from models import db, Article
+@@
+-app = Flask(__name__)
++app = Flask(__name__)
++app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
++app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
++db.init_app(app)
++with app.app_context():
++    db.create_all()
+ 
+-# Твой существующий код/роуты ниже…
++# Твой существующий код/роуты ниже…
+ 
+@@
+-@app.route("/")
+-def index():
+-    # Раньше тут, вероятно, возвращался dict/list → Flask делал JSON на главной
+-    # Оставляем шаблон, а данные подхватывает фронтовый JS через /api/index.json
+-    return render_template("index.html")
++@app.route("/")
++def index():
++    # Главная отрисовывается шаблоном; фронтовый JS забирает ленту с /api/index.json
++    return render_template("index.html")
+ 
++# API: индекс (список карточек), тот же формат что был в data/index.json
++@app.route("/api/index.json")
++def api_index():
++    q = Article.query.order_by(Article.published_at.desc().nullslast()).all()
++    items = []
++    for a in q:
++        items.append({
++            "slug": a.slug,
++            "title": a.title,
++            "subtitle": a.subtitle,
++            "image_url": a.image_url,
++            # отдаем строкой, как раньше
++            "published_at": a.published_at.isoformat() if a.published_at else None
++        })
++    return jsonify(items)
++
++# Серверная страница статьи (полный контент из БД)
++@app.route("/news/<slug>")
++def article(slug):
++    a = Article.query.filter_by(slug=slug).first()
++    if not a or not a.content_html:
++        abort(404)
++    return render_template("article.html", a=a)
++
+*** /dev/null
+--- b/models.py
+@@
++from flask_sqlalchemy import SQLAlchemy
++from datetime import datetime
++
++db = SQLAlchemy()
++
++class Article(db.Model):
++    __tablename__ = "articles"
++    id = db.Column(db.Integer, primary_key=True)
++    slug = db.Column(db.String(255), unique=True, index=True, nullable=False)
++    title = db.Column(db.String(1000), nullable=False)
++    subtitle = db.Column(db.String(2000))
++    image_url = db.Column(db.String(2000))
++    published_at = db.Column(db.DateTime)
++    content_html = db.Column(db.Text, default="")
++    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
++    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
++
+*** a/templates/index.html
+--- b/templates/index.html
+@@
+-  <ul id="news-list"></ul>
++  <ul id="news-list"></ul>
+   <script>
+-    // было: fetch('data/index.json') или встроенный JSON
+-    // стало: тянем тот же формат, но из БД
++    // NB: формат ответа не менялся — фронт работает как прежде
+     fetch('/api/index.json')
+       .then(r => r.json())
+       .then(items => {
+         const ul = document.getElementById('news-list');
+         ul.innerHTML = '';
+         items.forEach(a => {
+           const li = document.createElement('li');
+-          // если раньше карточка была без ссылки — сделаем кликабельной
+-          li.innerHTML = `
+-            <article class="news-item">
+-              <h2 class="news-title">${a.title}</h2>
+-              ${a.image_url ? `<img src="${a.image_url}" alt="">` : ``}
+-              ${a.published_at ? `<p class="news-meta">${a.published_at}</p>` : ``}
+-              ${a.subtitle ? `<p class="news-sub">${a.subtitle}</p>` : ``}
+-            </article>`;
++          li.innerHTML = `
++            <article class="news-item">
++              <a class="news-link" href="/news/${a.slug}">
++                <h2 class="news-title">${a.title}</h2>
++                ${a.image_url ? `<img src="${a.image_url}" alt="">` : ``}
++                ${a.published_at ? `<p class="news-meta">${a.published_at}</p>` : ``}
++                ${a.subtitle ? `<p class="news-sub">${a.subtitle}</p>` : ``}
++              </a>
++            </article>`;
+           ul.appendChild(li);
+         });
+       });
+   </script>
+*** /dev/null
+--- b/templates/article.html
+@@
++<!doctype html>
++<html lang="ru">
++<head>
++  <meta charset="utf-8">
++  <title>{{ a.title }}</title>
++  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
++  <!-- если у тебя есть общий header.html — подключи как partial -->
++</head>
++<body>
++  <article class="article">
++    <h1>{{ a.title }}</h1>
++    {% if a.published_at %}<p class="news-meta">{{ a.published_at }}</p>{% endif %}
++    {% if a.image_url %}<img src="{{ a.image_url }}" alt="">{% endif %}
++    <div class="content">
++      {{ a.content_html | safe }}
++    </div>
++    <p><a href="{{ url_for('index') }}">← назад</a></p>
++  </article>
++</body>
++<script>
++// если хочешь, можно добавить lazy enhancements здесь
++</script>
++</html>
+*** /dev/null
+--- b/scripts/ingest_payloads.py
+@@
++"""
++Берёт payload’ы статей из scripts/payloads/*.json и делает upsert в БД.
++Поддерживаются поля:
++  slug, title, subtitle, image_url, published_at (ISO/строка), content_html (или content)
++"""
++import json
++from pathlib import Path
++from datetime import datetime
++
++from app import app  # важно: здесь уже инициализирован db/app
++from models import db, Article
++
++ROOT = Path(__file__).resolve().parents[1]
++SRC  = ROOT / "scripts" / "payloads"
++
++def parse_dt(s):
++    if not s:
++        return None
++    s = s.replace("Z", "")
++    # пробуем ISO и простые форматы
++    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
++        try:
++            return datetime.strptime(s[:19], fmt)
++        except Exception:
++            pass
++    try:
++        return datetime.fromisoformat(s)
++    except Exception:
++        return None
++
++def upsert_article(d):
++    slug = d["slug"]
++    obj = Article.query.filter_by(slug=slug).first()
++    if not obj:
++        obj = Article(slug=slug)
++    obj.title = d.get("title") or slug
++    obj.subtitle = d.get("subtitle")
++    obj.image_url = d.get("image_url")
++    obj.published_at = parse_dt(d.get("published_at"))
++    obj.content_html = d.get("content_html") or d.get("content") or ""
++    db.session.add(obj)
++    return obj
++
++def main():
++    with app.app_context():
++        db.create_all()
++        if not SRC.exists():
++            print("No scripts/payloads directory found")
++            return
++        files = sorted(SRC.glob("*.json"))
++        n = 0
++        for p in files:
++            try:
++                d = json.loads(p.read_text(encoding="utf-8"))
++                if isinstance(d, list):
++                    for x in d:
++                        if "slug" in x:
++                            upsert_article(x); n += 1
++                elif isinstance(d, dict) and "slug" in d:
++                    upsert_article(d); n += 1
++                else:
++                    print(f"skip {p.name}: no slug")
++            except Exception as e:
++                print(f"error {p.name}: {e}")
++        db.session.commit()
++        print(f"upserted {n} articles")
++
++if __name__ == "__main__":
++    main()
+*** a/requirements.txt
+--- b/requirements.txt
+@@
+ Flask
+ gunicorn
++Flask-SQLAlchemy
++psycopg2-binary

@@ -1,72 +1,64 @@
 # scripts/import_articles.py
-import os
-import sys
-# предполагается, что этот скрипт запускают из корня репозитория
+import os, sys
+from datetime import datetime
 sys.path.insert(0, os.path.abspath("."))
 
-from app import app, db, Article  # у тебя в app.py должны быть эти имена
+from app import app, db, Article
 from sqlalchemy.exc import IntegrityError
 
-# список ARTICLES можно либо импортировать из отдельного файла, либо вставить прямо сюда.
-ARTICLES = [ 
-    # вставь сюда тот же список ARTICLES, который я дал выше (все словари)
-]
+# грузим ARTICLES из scripts/articles_payload.py
+try:
+    from scripts.articles_payload import ARTICLES
+except Exception as e:
+    print("ERROR: cannot import scripts.articles_payload:", e)
+    ARTICLES = []
+
+def re_slugify(title: str) -> str:
+    import re
+    TRANS = {
+        'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z','и':'i','й':'i',
+        'к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f',
+        'х':'h','ц':'ts','ч':'ch','ш':'sh','щ':'shch','ы':'y','э':'e','ю':'yu','я':'ya','ь':'','ъ':''
+    }
+    s = (title or "").lower().strip()
+    s = "".join(TRANS.get(ch, ch) for ch in s)
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    return s or "article"
 
 def import_articles():
     with app.app_context():
-        added = 0
+        db.create_all()
+        added, updated = 0, 0
         for item in ARTICLES:
-            slug = item["slug"]
-            existing = Article.query.filter_by(slug=slug).first()
-            if existing:
-                print(f"Пропускаю (уже есть): {slug} — {existing.title}")
-                continue
-            a = Article(title=item["title"], text=item["text"], slug=item["slug"], section=item.get("section","list"))
-            db.session.add(a)
-            try:
-                db.session.commit()
-                print(f"Добавлена: {slug}")
+            title = (item.get("title") or "").strip()
+            text = item.get("text") or ""
+            section = item.get("section") or "list"
+            slug = (item.get("slug") or "").strip() or re_slugify(title)
+
+            obj = Article.query.filter_by(slug=slug).first()
+            if obj:
+                changed = False
+                if title and obj.title != title:
+                    obj.title = title; changed = True
+                if text and obj.text != text:
+                    obj.text = text; changed = True
+                if section and obj.section != section:
+                    obj.section = section; changed = True
+                if changed:
+                    updated += 1
+            else:
+                obj = Article(slug=slug, title=title, text=text, section=section)
+                db.session.add(obj)
                 added += 1
-            except IntegrityError:
-                db.session.rollback()
-                print(f"Ошибка при добавлении (конфликт slugs?): {slug}")
-        print(f"Импорт завершён. Добавлено записей: {added}")
 
-if __name__ == "__main__":
-    import_articles()
-# scripts/import_articles.py
-import os
-import sys
-# предполагается, что этот скрипт запускают из корня репозитория
-sys.path.insert(0, os.path.abspath("."))
+        try:
+            db.session.commit()
+        except IntegrityError as e:
+            db.session.rollback()
+            print("IntegrityError:", e)
 
-from app import app, db, Article  # у тебя в app.py должны быть эти имена
-from sqlalchemy.exc import IntegrityError
-
-# список ARTICLES можно либо импортировать из отдельного файла, либо вставить прямо сюда.
-ARTICLES = [ 
-    # вставь сюда тот же список ARTICLES, который я дал выше (все словари)
-]
-
-def import_articles():
-    with app.app_context():
-        added = 0
-        for item in ARTICLES:
-            slug = item["slug"]
-            existing = Article.query.filter_by(slug=slug).first()
-            if existing:
-                print(f"Пропускаю (уже есть): {slug} — {existing.title}")
-                continue
-            a = Article(title=item["title"], text=item["text"], slug=item["slug"], section=item.get("section","list"))
-            db.session.add(a)
-            try:
-                db.session.commit()
-                print(f"Добавлена: {slug}")
-                added += 1
-            except IntegrityError:
-                db.session.rollback()
-                print(f"Ошибка при добавлении (конфликт slugs?): {slug}")
-        print(f"Импорт завершён. Добавлено записей: {added}")
+        print(f"Imported payloads: added={added}, updated={updated}")
 
 if __name__ == "__main__":
     import_articles()
