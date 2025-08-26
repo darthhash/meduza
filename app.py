@@ -27,6 +27,8 @@ else:
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
+from scripts.import_articles import import_articles
+import_articles()
 
 # --- Model ---
 class Article(db.Model):
