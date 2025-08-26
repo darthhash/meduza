@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Админка — Медуза</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+    <h1>Админка (демо)</h1>
+    <a href="{{ url_for('index') }}">← На главную</a>
+</header>
+
+<main>
+    <form method="POST">
+        <label>Раздел:
+            <select name="section">
+                <option value="main">Главная новость</option>
+                <option value="side">Боковая новость</option>
+                <option value="list">Новости списка</option>
+            </select>
+        </label>
+        <br>
+        <label>Заголовок: <input type="text" name="title" required></label><br>
+        <label>Текст: <textarea name="text" required></textarea></label><br>
+        <button type="submit">Добавить</button>
+    </form>
+
+    <h2>Текущие новости</h2>
+    <h3>Главная</h3>
+    <p><b>{{ news.main.title }}</b> — {{ news.main.text }}</p>
+
+    <h3>Боковые</h3>
+    <ul>
+    {% for item in news.side %}
+        <li><b>{{ item.title }}</b> — {{ item.text }}</li>
+    {% endfor %}
+    </ul>
+
+    <h3>Список</h3>
+    <ul>
+    {% for item in news.list %}
+        <li><b>{{ item.title }}</b> — {{ item.text }}</li>
+    {% endfor %}
+    </ul>
+</main>
+</body>
+</html>

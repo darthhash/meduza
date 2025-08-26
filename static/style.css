@@ -1,0 +1,22 @@
+body {
+    font-family: Arial, sans-serif;
+    max-width: 980px;
+    margin: auto;
+    padding: 20px;
+    background: #fafafa;
+}
+header {
+    border-bottom: 1px solid #ccc;
+    margin-bottom: 20px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+h1 { color: #222; margin:0; }
+.slogan { color: gray; margin:0; }
+section { margin-bottom: 20px; }
+form { margin-bottom: 30px; }
+textarea { width: 100%; height: 100px; }
+.main-news { background:#fff; padding:20px; border-radius:10px; }
+.side-news article, .news-list article { background:#fff; padding:15px; border-radius:10px; margin-bottom:10px; }
+.news-list { display:grid; grid-template-columns:1fr 1fr; gap:15px; }

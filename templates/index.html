@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Медуза — Хорошие Новости</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+    <h1>Медуза (сатирическая копия)</h1>
+    <p class="slogan">Новости хорошего будущего</p>
+    <nav><a href="{{ url_for('admin') }}">Админка</a></nav>
+</header>
+
+<main>
+    <section class="main-news">
+        <h2>{{ news.main.title }}</h2>
+        <p>{{ news.main.text }}</p>
+    </section>
+
+    <section class="side-news">
+        {% for item in news.side %}
+            <article>
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.text }}</p>
+            </article>
+        {% endfor %}
+    </section>
+
+    <section class="news-list">
+        {% for item in news.list %}
+            <article>
+                <h4>{{ item.title }}</h4>
+                <p>{{ item.text }}</p>
+            </article>
+        {% endfor %}
+    </section>
+</main>
+
+<footer>
+    <p>© Медуза (сатирическая копия). 2025 — Демо</p>
+</footer>
+</body>
+</html>
