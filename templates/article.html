@@ -1,10 +1,23 @@
 {% extends "base.html" %}
+
 {% block content %}
-<article style="margin-top:26px; background:#fff; padding:20px; border-radius:8px;">
-  <div class="kicker">{{ article.section|upper }}</div>
-  <h1 style="font-family:'PT Serif', serif; font-size:34px; margin-top:8px">{{ article.title }}</h1>
-  <p style="color:#666; margin-bottom:16px;">Опубликовано: {{ article.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
-  <div style="font-size:18px; line-height:1.6; color:#111;">{{ article.text|safe }}</div>
-  <p style="margin-top:18px;"><a class="link-reset" href="{{ url_for('index') }}">← На главную</a></p>
+<link rel="stylesheet" href="{{ url_for('static', filename='article.css') }}">
+
+<article class="page">
+  <header class="page-head">
+    <div class="kicker">{{ article.section|upper }}</div>
+    <h1 class="title">{{ article.title }}</h1>
+    <div class="meta">Опубликовано: {{ article.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+  </header>
+
+  <!-- В БД хранится ПОЛНЫЙ HTML. Он может включать <figure class="article-hero">,
+       который добавит наш скрипт fetch_images_openverse.py -->
+  <div class="prose">
+    {{ article.text | safe }}
+  </div>
+
+  <footer class="page-foot">
+    <a class="link-reset back" href="{{ url_for('index') }}">← На главную</a>
+  </footer>
 </article>
 {% endblock %}
