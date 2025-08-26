@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<article style="margin-top:26px; background:#fff; padding:20px; border-radius:8px;">
+  <div class="kicker">{{ article.section|upper }}</div>
+  <h1 style="font-family:'PT Serif', serif; font-size:34px; margin-top:8px">{{ article.title }}</h1>
+  <p style="color:#666; margin-bottom:16px;">Опубликовано: {{ article.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+  <div style="font-size:18px; line-height:1.6; color:#111;">{{ article.text }}</div>
+  <p style="margin-top:18px;"><a href="{{ url_for('index') }}">← На главную</a></p>
+</article>
+{% endblock %}

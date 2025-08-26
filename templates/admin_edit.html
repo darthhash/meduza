@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Редактировать — {{ article.title }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="site-header">
+  <div class="container header-inner">
+    <div class="logo">meduza</div>
+    <a class="support-btn" href="{{ url_for('index') }}">На главную</a>
+  </div>
+</header>
+
+<main class="container" style="padding-top:24px;">
+  <form method="post">
+    <label>Раздел:
+      <select name="section">
+        <option value="main" {% if article.section=='main' %}selected{% endif %}>Главная новость</option>
+        <option value="side" {% if article.section=='side' %}selected{% endif %}>Боковая</option>
+        <option value="list" {% if article.section=='list' %}selected{% endif %}>Список</option>
+      </select>
+    </label><br><br>
+
+    <label>Заголовок:<br>
+      <input type="text" name="title" value="{{ article.title }}" style="width:100%;" required>
+    </label><br><br>
+
+    <label>Slug:<br>
+      <input type="text" name="slug" value="{{ article.slug }}" style="width:100%;">
+    </label><br><br>
+
+    <label>Текст:<br>
+      <textarea name="text" style="width:100%; height:200px;" required>{{ article.text }}</textarea>
+    </label><br><br>
+
+    <button type="submit">Сохранить</button>
+  </form>
+</main>
+</body>
+</html>

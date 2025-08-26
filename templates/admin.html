@@ -1,48 +1,68 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>Админка — Медуза</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Админка — Медуза</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-<header>
-    <h1>Админка (демо)</h1>
-    <a href="{{ url_for('index') }}">← На главную</a>
+<header class="site-header">
+  <div class="container header-inner">
+    <div class="logo">meduza</div>
+    <nav class="site-nav"></nav>
+    <a class="support-btn" href="{{ url_for('index') }}">На главную</a>
+  </div>
 </header>
 
-<main>
-    <form method="POST">
-        <label>Раздел:
-            <select name="section">
-                <option value="main">Главная новость</option>
-                <option value="side">Боковая новость</option>
-                <option value="list">Новости списка</option>
-            </select>
-        </label>
-        <br>
-        <label>Заголовок: <input type="text" name="title" required></label><br>
-        <label>Текст: <textarea name="text" required></textarea></label><br>
-        <button type="submit">Добавить</button>
-    </form>
+<main class="container" style="padding-top:24px;">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <ul>
+        {% for cat, msg in messages %}
+          <li style="color: {% if cat=='error' %}#b00020{% else %}#0b7a2b{% endif %};">{{ msg }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
 
-    <h2>Текущие новости</h2>
-    <h3>Главная</h3>
-    <p><b>{{ news.main.title }}</b> — {{ news.main.text }}</p>
+  <form method="POST">
+    <label>Раздел:
+      <select name="section">
+        <option value="main">Главная новость</option>
+        <option value="side">Боковая</option>
+        <option value="list" selected>Список</option>
+      </select>
+    </label><br><br>
 
-    <h3>Боковые</h3>
-    <ul>
-    {% for item in news.side %}
-        <li><b>{{ item.title }}</b> — {{ item.text }}</li>
+    <label>Заголовок:<br>
+      <input type="text" name="title" style="width:100%;" required>
+    </label><br><br>
+
+    <label>Slug (опционально):<br>
+      <input type="text" name="slug" style="width:100%;">
+    </label><br><br>
+
+    <label>Текст:<br>
+      <textarea name="text" style="width:100%; height:140px;" required></textarea>
+    </label><br><br>
+
+    <button type="submit">Добавить</button>
+  </form>
+
+  <h2>Существующие статьи</h2>
+  <ul>
+    {% for a in articles %}
+      <li>
+        <b>[{{ a.section }}]</b>
+        <a href="{{ url_for('article_view', slug=a.slug) }}">{{ a.title }}</a>
+        — <a href="{{ url_for('admin_edit', article_id=a.id) }}">ред.</a>
+        <form style="display:inline" method="post" action="{{ url_for('admin_delete', article_id=a.id) }}">
+          <button onclick="return confirm('Удалить?')" type="submit">удалить</button>
+        </form>
+      </li>
     {% endfor %}
-    </ul>
-
-    <h3>Список</h3>
-    <ul>
-    {% for item in news.list %}
-        <li><b>{{ item.title }}</b> — {{ item.text }}</li>
-    {% endfor %}
-    </ul>
+  </ul>
 </main>
 </body>
 </html>
