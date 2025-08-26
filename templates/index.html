@@ -1,44 +1,30 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>Медуза — Хорошие Новости</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-<header>
-    <h1>Медуза</h1>
-    <p class="slogan">Новости хорошего будущего</p>
-    <nav><a href="{{ url_for('admin') }}">Админка</a></nav>
-</header>
+{% extends "base.html" %}
 
-<main>
-    <section class="main-news">
-        <h2>{{ news.main.title }}</h2>
-        <p>{{ news.main.text }}</p>
-    </section>
+{% block content %}
+<article class="hero">
+  <div class="hero-left">
+    <div class="kicker">РАЗБОР</div>
+    <h1 class="hero-title">{{ news.main.title }}</h1>
+    <p class="hero-dek">{{ news.main.text }}</p>
+  </div>
+  <div class="hero-right">
+    {% if news.side|length > 0 %}
+      {% for item in news.side %}
+      <div class="side-card">
+        <h3 class="side-title">{{ item.title }}</h3>
+        <p class="side-dek">{{ item.text }}</p>
+      </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+</article>
 
-    <section class="side-news">
-        {% for item in news.side %}
-            <article>
-                <h3>{{ item.title }}</h3>
-                <p>{{ item.text }}</p>
-            </article>
-        {% endfor %}
-    </section>
-
-    <section class="news-list">
-        {% for item in news.list %}
-            <article>
-                <h4>{{ item.title }}</h4>
-                <p>{{ item.text }}</p>
-            </article>
-        {% endfor %}
-    </section>
-</main>
-
-<footer>
-    <p>© Медуза (сатирическая копия). 2025 — Демо</p>
-</footer>
-</body>
-</html>
+<section class="list-grid">
+  {% for item in news.list %}
+  <article class="list-item">
+    <h4 class="list-title">{{ item.title }}</h4>
+    <p class="list-dek">{{ item.text }}</p>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}
