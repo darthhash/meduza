@@ -27,7 +27,9 @@ def run_generation():
     if not _check_token(request):
         return jsonify(error="unauthorized"), 401
 
+    import sys, traceback, os
     payload = request.get_json(silent=True) or {}
+
     topic = (payload.get("topic") or "").strip()
     if not topic:
         city   = (payload.get("city") or "").strip()
@@ -37,54 +39,72 @@ def run_generation():
         bits = [b for b in (city, sector or law, person) if b]
         topic = " — ".join(bits) if bits else ""
 
-    n = int(payload.get("n", 1 if topic else 3))
-    n = max(1, min(n, 5))
+    n          = max(1, min(int(payload.get("n", 1 if topic else 3)), 5))
+    last_k     = payload.get("last_k")
+    half_life  = payload.get("half_life")
+    ctx_max    = payload.get("ctx_max_chars")
+    do_import  = bool(payload.get("import", False))
 
-    last_k    = payload.get("last_k")
-    half_life = payload.get("half_life")
-    ctx_max   = payload.get("ctx_max_chars")
-    do_import = bool(payload.get("import", False))
-
+    # Пер-запросные оверрайды изображений (удобно!)
+    if "image_backend" in payload:
+        os.environ["IMAGE_BACKEND"] = str(payload["image_backend"]).lower()
     if "image_size" in payload:
         os.environ["IMAGE_SIZE"] = str(payload["image_size"])
     if "image_embed_data_url" in payload:
         os.environ["IMAGE_EMBED_DATA_URL"] = "true" if payload["image_embed_data_url"] else "false"
 
+    # Префлайт ключа OpenAI + санитизация
     try:
-        # preflight ключа: чистим и валидируем
         from scripts.generate_news_openai import _sanitize_api_key, _clean_openai_env_nonascii
         raw_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_KEY") or ""
         if not raw_key:
             return jsonify(error="missing_openai_key"), 400
         os.environ["OPENAI_API_KEY"] = _sanitize_api_key(raw_key)
         _clean_openai_env_nonascii()
+    except Exception as e:
+        return jsonify(error="bad_openai_key", detail=str(e)), 400
 
-        # дефолт для картинок — placeholder
-        os.environ.setdefault("IMAGE_BACKEND", "placeholder")
+    # Страховка: превращаем sys.exit(...) в исключение (ловим ниже)
+    _orig_exit = sys.exit
+    sys.exit = lambda code=None: (_ for _ in ()).throw(RuntimeError(f"sys.exit({code})"))
 
-        # основная генерация
+    try:
         from scripts.generate_news_openai import run as newsgen_run
-        topics_override = [topic] if topic else None
-        res = newsgen_run(
-            n=n,
-            last_k=last_k,
-            half_life=half_life,
-            ctx_max_chars=ctx_max,
-            do_import=do_import,
-            topics_override=topics_override
-        )
-        return jsonify(res), 200
-
-    except BaseException as e:
-        # Специально различаем типы
-        from openai import AuthenticationError
-        if isinstance(e, AuthenticationError):
-            return jsonify(error="openai_auth", detail=str(e)), 401
-        if isinstance(e, SystemExit):
-            # преобразуем в понятную ошибку (до сюда доходить не должно, но на всякий)
-            return jsonify(error="system_exit", detail=str(getattr(e, "code", ""))), 500
-        # общий случай: вернём и трейс
-        return jsonify(error=e.__class__.__name__, detail=str(e), trace=traceback.format_exc(limit=8)), 500
+        try:
+            # Первая попытка — как попросили
+            topics_override = [topic] if topic else None
+            res = newsgen_run(
+                n=n,
+                last_k=last_k,
+                half_life=half_life,
+                ctx_max_chars=ctx_max,
+                do_import=do_import,
+                topics_override=topics_override,
+            )
+            return jsonify(res), 200
+        except Exception as e1:
+            # Если картинка/доступ подвёл — автофолбэк на commons и без импорта
+            os.environ.setdefault("IMAGE_BACKEND", "commons")
+            try:
+                res = newsgen_run(
+                    n=n,
+                    last_k=last_k,
+                    half_life=half_life,
+                    ctx_max_chars=ctx_max,
+                    do_import=do_import,
+                    topics_override=topics_override,
+                )
+                res["note"] = "image_backend_fallback=commons"
+                return jsonify(res), 200
+            except Exception as e2:
+                return jsonify(
+                    error=e2.__class__.__name__,
+                    detail=str(e2),
+                    trace=traceback.format_exc(limit=8),
+                ), 500
+    finally:
+        # возвращаем sys.exit назад
+        sys.exit = _orig_exit
 
 @newsgen_bp.get("/diagnose")
 def diagnose():
