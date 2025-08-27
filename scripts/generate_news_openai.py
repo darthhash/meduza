@@ -17,6 +17,8 @@ from __future__ import annotations
 import os, re, json, textwrap, math, html, base64, io, pathlib, random
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+import requests
+import urllib.parse
 
 # ───────────────────────────────────────────────────────────────────────────
 # .env (локально полезно; на Railway можно не нужно)
@@ -329,30 +331,42 @@ class OpenAIChat:
 # ───────────────────────────────────────────────────────────────────────────
 # Картинки: openai | placeholder
 class ImageBackend:
+    """
+    backends:
+      - openai   : генерим через gpt-image-1 (нужна верифицированная организация)
+      - commons  : ищем подходящее изображение в Wikimedia Commons (без ключей)
+      - auto     : пробуем openai → fallback на commons
+      - placeholder : как сейчас (1x1 PNG)
+    """
     def __init__(self):
         self.backend = (os.getenv("IMAGE_BACKEND") or "placeholder").lower()
         self.model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
         self.size = os.getenv("IMAGE_SIZE", "1024x1024")
         self.embed_data_url = (os.getenv("IMAGE_EMBED_DATA_URL", "true").lower() == "true")
+
+        # куда кладём реальные файлы (если embed_data_url=false)
         self.static_dir = pathlib.Path("static/news_images")
         self.static_dir.mkdir(parents=True, exist_ok=True)
+
+        # клиент OpenAI (если нужен)
         self.client = None
-        if self.backend == "openai":
+        if self.backend in ("openai", "auto"):
             try:
-                # используем тот же ключ, что и чат
                 raw_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_KEY") or ""
                 if raw_key:
                     api_key = _sanitize_api_key(raw_key)
                     from openai import OpenAI  # type: ignore
                     self.client = OpenAI(api_key=api_key)
                 else:
-                    self.backend = "placeholder"
+                    if self.backend == "openai":
+                        print("[warn] IMAGE_BACKEND=openai, но OPENAI_API_KEY отсутствует → fallback=placeholder")
+                        self.backend = "placeholder"
             except Exception as e:
-                print("[warn] image backend fallback to placeholder:", e)
-                self.backend = "placeholder"
+                print("[warn] image backend init failed, fallback to commons:", e)
+                self.backend = "commons"
 
+    # ---------- placeholder ----------
     def _placeholder_data_url(self) -> str:
-        # 1x1 прозрачный PNG
         tiny_png = (
             b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
             b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0bIDATx\x9cc``\x00\x00\x00\x04"
@@ -361,47 +375,157 @@ class ImageBackend:
         b64 = base64.b64encode(tiny_png).decode("ascii")
         return f"data:image/png;base64,{b64}"
 
-    def generate(self, topic: str, slug_hint: str) -> Tuple[str, bool]:
-        """
-        Возвращает (html, inline) — фрагмент <figure><img ...></figure> и признак inline (data URL).
-        """
-        alt = f"иллюстрация: {topic}"
-        if self.backend != "openai" or self.client is None:
-            src = self._placeholder_data_url() if self.embed_data_url else f"/static/news_images/{slug_hint}.png"
-            if not self.embed_data_url:
-                # запишем прозрачный PNG, чтобы ссылка не била 404
-                try:
-                    with open(self.static_dir / f"{slug_hint}.png", "wb") as f:
-                        f.write(base64.b64decode(self._placeholder_data_url().split(",",1)[1]))
-                except Exception:
-                    pass
-            return f'<figure><img src="{src}" alt="{alt}"/></figure>', self.embed_data_url
-
-        # OpenAI Images
+    # ---------- commons ----------
+    def _search_commons_url(self, query: str) -> Optional[str]:
+        """Ищем файл в Wikimedia Commons и возвращаем URL (thumb или оригинал)."""
         try:
-            prompt = f"Futuristic, thoughtful editorial illustration for article about: {topic}. Minimalist, news style."
+            # 1) поиск по файловому пространству имён (namespace=6 — File:)
+            params = {
+                "action": "query",
+                "list": "search",
+                "srsearch": query,
+                "srnamespace": 6,
+                "srlimit": 10,
+                "format": "json",
+                "origin": "*",
+            }
+            r = requests.get("https://commons.wikimedia.org/w/api.php", params=params, timeout=8)
+            r.raise_for_status()
+            data = r.json()
+            hits = data.get("query", {}).get("search", []) or []
+            for h in hits:
+                title = h.get("title")  # типа "File:Something.png"
+                if not title:
+                    continue
+                # 2) берём инфо по файлу (thumb 1024, либо full url)
+                p2 = {
+                    "action": "query",
+                    "titles": title,
+                    "prop": "imageinfo",
+                    "iiprop": "url|mime",
+                    "iiurlwidth": "1024",
+                    "format": "json",
+                    "origin": "*",
+                }
+                r2 = requests.get("https://commons.wikimedia.org/w/api.php", params=p2, timeout=8)
+                r2.raise_for_status()
+                d2 = r2.json()
+                pages = d2.get("query", {}).get("pages", {}) or {}
+                for _, page in pages.items():
+                    infos = page.get("imageinfo") or []
+                    if not infos:
+                        continue
+                    info = infos[0]
+                    url = info.get("thumburl") or info.get("url")
+                    if url and isinstance(url, str) and url.lower().startswith("http"):
+                        return url
+        except Exception as e:
+            print("[warn] commons search failed:", e)
+        return None
+
+    def _download_to_static(self, url: str, slug_hint: str) -> Optional[str]:
+        """Скачиваем URL в static/news_images/<slug>.<ext> и возвращаем web-путь, либо None."""
+        try:
+            r = requests.get(url, timeout=12, stream=True)
+            r.raise_for_status()
+            # определить расширение
+            ext = None
+            ctype = r.headers.get("Content-Type", "").lower()
+            if "jpeg" in ctype or "jpg" in ctype:
+                ext = ".jpg"
+            elif "png" in ctype:
+                ext = ".png"
+            elif "webp" in ctype:
+                ext = ".webp"
+            else:
+                # из URL
+                path = urllib.parse.urlparse(url).path
+                _, ext = os.path.splitext(path)
+                if not ext:
+                    ext = ".jpg"
+            fname = f"{slug_hint}{ext}"
+            fpath = self.static_dir / fname
+            with open(fpath, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            return f"/static/news_images/{fname}"
+        except Exception as e:
+            print("[warn] download failed:", e)
+            return None
+
+    # ---------- openai ----------
+    def _openai_image(self, topic: str, slug_hint: str) -> Optional[str]:
+        if not self.client:
+            return None
+        try:
+            prompt = f"Editorial illustration for a Russian future news article about: {topic}. Minimalist, news style."
             res = self.client.images.generate(model=self.model, prompt=prompt, size=self.size)
             b64 = res.data[0].b64_json
             if self.embed_data_url:
-                return f'<figure><img src="data:image/png;base64,{b64}" alt="{alt}"/></figure>', True
+                return f"data:image/png;base64,{b64}"
             else:
                 data = base64.b64decode(b64)
                 path = self.static_dir / f"{slug_hint}.png"
                 with open(path, "wb") as f:
                     f.write(data)
-                return f'<figure><img src="/static/news_images/{slug_hint}.png" alt="{alt}"/></figure>', False
+                return f"/static/news_images/{slug_hint}.png"
         except Exception as e:
-            print("[warn] image generation failed:", e)
-            src = self._placeholder_data_url() if self.embed_data_url else f"/static/news_images/{slug_hint}.png"
-            if not self.embed_data_url:
-                try:
-                    with open(self.static_dir / f"{slug_hint}.png", "wb") as f:
-                        f.write(base64.b64decode(self._placeholder_data_url().split(",",1)[1]))
-                except Exception:
-                    pass
-            return f'<figure><img src="{src}" alt="{alt}"/></figure>', self.embed_data_url
+            print("[warn] openai image failed:", e)
+            return None
 
-# ───────────────────────────────────────────────────────────────────────────
+    # ---------- основной интерфейс ----------
+    def generate(self, topic: str, slug_hint: str) -> Tuple[str, bool]:
+        """
+        Возвращает (html, inline) — <figure><img .../></figure> и флаг inline, если data URL.
+        """
+        alt = f"иллюстрация: {topic}"
+        src: Optional[str] = None
+
+        if self.backend == "openai":
+            src = self._openai_image(topic, slug_hint)
+        elif self.backend == "commons":
+            url = self._search_commons_url(topic)
+            if url:
+                if self.embed_data_url:
+                    # инлайнить как data-url (дороже по размеру ответа; обычно не надо)
+                    b = requests.get(url, timeout=12).content
+                    b64 = base64.b64encode(b).decode("ascii")
+                    src = f"data:image/{('png' if url.endswith('.png') else 'jpeg')};base64,{b64}"
+                else:
+                    src = self._download_to_static(url, slug_hint)
+        elif self.backend == "auto":
+            # пробуем openai → commons → placeholder
+            src = self._openai_image(topic, slug_hint)
+            if not src:
+                url = self._search_commons_url(topic)
+                if url:
+                    if self.embed_data_url:
+                        b = requests.get(url, timeout=12).content
+                        b64 = base64.b64encode(b).decode("ascii")
+                        src = f"data:image/{('png' if url.endswith('.png') else 'jpeg')};base64,{b64}"
+                    else:
+                        src = self._download_to_static(url, slug_hint)
+
+        if not src:
+            # финальный фолбэк — прозрачный пиксель
+            if self.embed_data_url:
+                src = self._placeholder_data_url()
+            else:
+                # положим прозрачный PNG в static, чтобы ссылка не была 404
+                data_url = self._placeholder_data_url()
+                b = base64.b64decode(data_url.split(",",1)[1])
+                path = self.static_dir / f"{slug_hint}.png"
+                try:
+                    with open(path, "wb") as f:
+                        f.write(b)
+                    src = f"/static/news_images/{slug_hint}.png"
+                except Exception:
+                    src = data_url
+
+        inline = src.startswith("data:")
+        return f'<figure><img src="{src}" alt="{alt}"/></figure>', inline
+
 # Парсинг JSON от модели
 def parse_json_or_fallback(raw: str, topic: str) -> Dict[str, Any]:
     try:
