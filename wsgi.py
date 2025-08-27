@@ -4,6 +4,7 @@ import pathlib
 from typing import Any
 
 application: Any = None
+from dotenv import load_dotenv; load_dotenv()
 
 # 1) Пробуем пакетный вариант: app/__init__.py → create_app()
 try:
