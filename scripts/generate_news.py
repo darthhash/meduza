@@ -74,7 +74,7 @@ def _wire_slugify():
         t = re.sub(r"-{2,}", "-", t).strip("-")
         return t
     return _fallback_slugify
-
+ #defw
 slugify = _wire_slugify()
 
 # ───────────────────────────────────────────────────────────────────────────
