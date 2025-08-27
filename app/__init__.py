@@ -8,6 +8,7 @@ db = SQLAlchemy()
 migrate = Migrate()
 
 def create_app():
+    # ← ЭТОГО НЕ ХВАТАЛО
     app = Flask(__name__, static_folder="static", static_url_path="/static")
 
     # БД: Railway DATABASE_URL или локально SQLite
@@ -27,6 +28,7 @@ def create_app():
     # Модель Article — используем твою, если есть; иначе минимальный фолбэк
     try:
         from .models import Article  # type: ignore
+        globals()["Article"] = Article
     except Exception:
         from sqlalchemy import func
         class Article(db.Model):  # type: ignore
@@ -38,15 +40,13 @@ def create_app():
             tags = db.Column(db.String(1024))
             text = db.Column(db.Text, nullable=False)
             created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
-
-        # экспорт фолбэк-модели, чтобы scripts могли импортировать
-        globals()["Article"] = Article
+        globals()["Article"] = Article  # экспорт фолбэк-модели
 
     # экспорт app/db для скриптов (from app import app, db, Article)
     globals()["app"] = app
     globals()["db"] = db
 
-    # Регистрируем блюпринт генератора
+    # Регистрируем блюпринт генератора (если есть)
     try:
         from .newsgen import newsgen_bp
         app.register_blueprint(newsgen_bp)
@@ -58,3 +58,13 @@ def create_app():
         return {"ok": True}
 
     return app
+
+# --- совместимость с "gunicorn app:app" (если где-то осталась старая команда) ---
+try:
+    app  # type: ignore  # уже есть?
+except NameError:
+    try:
+        app = create_app()  # type: ignore
+    except Exception as e:
+        print("[warn] auto create_app() failed:", e)
+# -------------------------------------------------------------------------------
