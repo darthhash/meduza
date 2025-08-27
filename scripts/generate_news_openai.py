@@ -1,6 +1,110 @@
 # scripts/generate_news_openai.py  — фрагмент: замените класс OpenAIChat целиком
 import os, re
 
+# ─── ЧТЕНИЕ ПОСЛЕДНИХ СТАТЕЙ ИЗ БД ─────────────────────────────────────────
+from typing import Any, Dict, List
+from datetime import datetime
+
+def _ts_from_iso(s: str | None) -> float:
+    if not s:
+        return 0.0
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+def fetch_recent_articles_from_db(limit: int = 40) -> List[Dict[str, Any]]:
+    """
+    Возвращает [{title,text,tags,slug,section,created_at}], отсортированные по дате (новые → старые).
+    1) Пытается взять ORM-модель Article из пакета app (Flask + SQLAlchemy).
+    2) Фолбэк: сырой SQL по типовым таблицам/колонкам.
+    """
+    # 1) ORM-путь
+    try:
+        from app import app as _flask_app  # type: ignore
+        from app import db as _db          # type: ignore
+        from app import Article as _Article  # type: ignore
+
+        if _flask_app is not None and _Article is not None:
+            with _flask_app.app_context():
+                order_col = _Article.created_at if hasattr(_Article, "created_at") else _Article.id
+                rows = (
+                    _Article.query
+                    .order_by(order_col.desc())
+                    .limit(limit)
+                    .all()
+                )
+                out: List[Dict[str, Any]] = []
+                for r in rows:
+                    created = ""
+                    try:
+                        v = getattr(r, "created_at", None)
+                        created = v.isoformat() if v else ""
+                    except Exception:
+                        pass
+                    out.append({
+                        "title":   getattr(r, "title", "") or "",
+                        "text":    getattr(r, "text", "") or "",
+                        "tags":    getattr(r, "tags", "") or "",
+                        "slug":    getattr(r, "slug", "") or "",
+                        "section": getattr(r, "section", "") or "list",
+                        "created_at": created,
+                    })
+                out.sort(key=lambda x: _ts_from_iso(x["created_at"]), reverse=True)
+                return out
+    except Exception as e:
+        print("[warn] SQLAlchemy Article path failed:", e)
+
+    # 2) Сырой SQL фолбэк
+    try:
+        from app import app as _flask_app  # type: ignore
+        from app import db as _db          # type: ignore
+        from sqlalchemy import text as sql_text  # type: ignore
+        if _flask_app is None or _db is None:
+            raise RuntimeError("Flask app/db not available")
+
+        candidate_tables = ["articles", "news", "posts"]
+        candidate_cols = [
+            ("title","text","tags","slug","section","created_at"),
+            ("title","body","tags","slug","section","created_at"),
+            ("title","content","tags","slug","section","created_at"),
+        ]
+        with _flask_app.app_context():
+            for tbl in candidate_tables:
+                for cols in candidate_cols:
+                    cols_sql = ", ".join(cols)
+                    try:
+                        res = _db.session.execute(
+                            sql_text(f"SELECT {cols_sql} FROM {tbl} ORDER BY created_at DESC LIMIT :lim"),
+                            {"lim": limit}
+                        )
+                        rows = res.fetchall()
+                        if not rows:
+                            continue
+                        out: List[Dict[str, Any]] = []
+                        for row in rows:
+                            d = dict(zip(cols, row))
+                            created = d.get("created_at")
+                            if hasattr(created, "isoformat"):
+                                created = created.isoformat()
+                            created = created or ""
+                            out.append({
+                                "title":   (d.get("title") or "")[:255],
+                                "text":    d.get("text") or d.get("body") or d.get("content") or "",
+                                "tags":    d.get("tags") or "",
+                                "slug":    d.get("slug") or "",
+                                "section": d.get("section") or "list",
+                                "created_at": created,
+                            })
+                        out.sort(key=lambda x: _ts_from_iso(x["created_at"]), reverse=True)
+                        return out
+                    except Exception:
+                        continue
+    except Exception as e:
+        print("[warn] raw SQL path failed:", e)
+
+    return []
+
 def _clean_openai_env_nonascii() -> list[tuple[str,str]]:
     """Выбрасываем org/project из ENV, если там не-ASCII (httpx не любит это в заголовках)."""
     bad = []
