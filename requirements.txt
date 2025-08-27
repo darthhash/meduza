@@ -1,0 +1,20 @@
+fastapi==0.112.2
+uvicorn[standard]==0.30.6
+pydantic==2.8.2
+
+# LLM + загрузка
+llama-cpp-python==0.2.90
+huggingface_hub==0.24.6
+
+# если у тебя уже есть эти зависимости в проекте — просто добавь недостающие
+python-dotenv==1.0.1
+# Flask app deps
+Flask>=3.0,<4
+Flask-SQLAlchemy>=3.1,<4
+SQLAlchemy>=2.0,<3
+# pick one DB driver depending on your DB
+psycopg2-binary>=2.9  # for Postgres
+hf_transfer
+# pymysql>=1.1        # for MySQL/MariaDB
+openai>=1.30.0
+python-dotenv>=1.0
