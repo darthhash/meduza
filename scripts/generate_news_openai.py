@@ -299,7 +299,7 @@ class OpenAIChat:
         api_key = _sanitize_api_key(raw_key)
         _clean_openai_env_nonascii()
         from openai import OpenAI  # type: ignore
-        self.client = OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key, timeout=45)
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
@@ -313,6 +313,7 @@ class OpenAIChat:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 response_format={"type":"json_object"},
+                timeout=45
             )
             return resp.choices[0].message.content.strip()
         except AuthenticationError:
