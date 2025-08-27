@@ -1,20 +1,7 @@
-# локальные модели и артефакты
+.venv/
+__pycache__/
+*.pyc
 data/models/
 *.gguf
-*.safetensors
-*.bin
-*.pt
-*.ckpt
-
-# сгенерённые картинки (если сохраняешь в файлы)
 static/news_images/
-# локальные модели и артефакты
-data/models/
-*.gguf
-*.safetensors
-*.bin
-*.pt
-*.ckpt
-
-# сгенерённые картинки
-static/news_images/
+.env
