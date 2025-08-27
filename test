@@ -9,3 +9,8 @@ python app.py
 
 export LLM_PROVIDER="hf"; export HF_TOKEN="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"; export HF_MODEL="zephyr-7b-beta"
 python scripts/generate_news.py
+
+curl -X POST "https://meduza-production-9648.up.railway.app/newsgen/run" \
+  -H "Content-Type: application/json" \
+  -H "X-Token: <NEWSGEN_TOKEN>" \
+  -d '{"topic":"Москва — финтех — экспериментальный режим — вымышленный предприниматель","n":1,"import":true}'
