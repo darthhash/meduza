@@ -1,89 +1,72 @@
 # scripts/import_articles.py
-import os, sys
+from typing import List, Dict, Any
 from datetime import datetime
-from typing import Any, Dict, List
+from sqlalchemy import text as sql_text
 
-sys.path.insert(0, os.path.abspath("."))
-from app import app, db, Article
+def _s(x) -> str:
+    if x is None:
+        return ""
+    return x if isinstance(x, str) else str(x)
 
-try:
-    from scripts.articles_payload import ARTICLES
-except Exception as e:
-    print("ERROR: cannot import scripts.articles_payload:", e)
-    ARTICLES = []
+def import_articles(articles: List[Dict[str, Any]]) -> int:
+    """
+    Импортирует список статей в таблицу Article (или через сырой SQL),
+    принудительно включая UTF-8.
+    Ожидает поля: title, text, tags, slug, section, created_at.
+    """
+    from app import app as _flask_app
+    from app import db as _db
+    # Пытаемся использовать модель, если она есть
+    Article = None
+    try:
+        from app import Article as _Article  # type: ignore
+        Article = _Article
+    except Exception:
+        Article = None
 
-def to_dt(val: Any):
-    if not val: return None
-    if isinstance(val, datetime): return val
-    s = str(val).replace("Z","")
-    for fmt in ("%Y-%m-%dT%H:%M:%S","%Y-%m-%d %H:%M:%S"):
-        try: return datetime.strptime(s[:19], fmt)
-        except Exception: pass
-    try: return datetime.fromisoformat(s)
-    except Exception: return None
-
-def norm_section(v: str) -> str:
-    v = (v or "").strip().lower()
-    return v if v in {"main","side","list"} else "list"
-
-def choose_text(item: Dict[str, Any]) -> str:
-    for k in ("content_html","content","text"):
-        v = item.get(k)
-        if v: return str(v)
-    return ""
-
-def to_tags_string(tags_val) -> str:
-    if not tags_val: return ""
-    if isinstance(tags_val, str):
-        # нормализуем "a, b ,c"
-        parts = [p.strip() for p in tags_val.split(",") if p.strip()]
-        return ", ".join(parts)
-    if isinstance(tags_val, (list, tuple)):
-        parts = [str(p).strip() for p in tags_val if str(p).strip()]
-        return ", ".join(parts)
-    return str(tags_val)
-
-def import_articles():
-    with app.app_context():
-        db.create_all()
-        added, updated = 0, 0
-        for it in ARTICLES:
-            slug = (it.get("slug") or "").strip()
-            title = (it.get("title") or "").strip()
-            if not slug:
-                print("skip (no slug):", title[:80]); continue
-            text = choose_text(it)
-            section = norm_section(it.get("section"))
-            created_at = to_dt(it.get("created_at")) or datetime.utcnow()
-            tags = to_tags_string(it.get("tags"))
-
-            obj = Article.query.filter_by(slug=slug).first()
-            if not obj:
-                obj = Article(slug=slug); db.session.add(obj); added += 1
-            else:
-                updated += 1
-
-            obj.title = title or obj.title or slug
-            obj.text = text
-            obj.section = section
-            obj.tags = tags
-            if not obj.created_at:
-                obj.created_at = created_at
-
-        db.session.commit()
-        print(f"imported: added={added}, updated={updated}")
-
-if __name__ == "__main__":
-    write_payload(articles, path="scripts/articles_payload.py")
-    if args.do_import:
-        # динамически подхватим свежий payload и передадим его в модуль импорта
-        import importlib, scripts.import_articles as imp_mod
+    total = 0
+    with _flask_app.app_context():
+        # 1) клиентская кодировка на всякий случай
         try:
-            importlib.reload(imp_mod)  # на всякий случай, вдруг модуль уже был импортирован
+            _db.session.execute(sql_text("SET client_encoding TO 'UTF8'"))
         except Exception:
             pass
-        # пробрасываем именно сгенерированный список
-        imp_mod.ARTICLES = articles
-        imp_mod.import_articles()
-        print(f"[ok] imported {len(articles)} articles into DB")
 
+        if Article is not None:
+            # ORM-путь
+            for a in articles:
+                rec = Article(
+                    title=_s(a.get("title")),
+                    text=_s(a.get("text")),
+                    tags=_s(a.get("tags")),
+                    slug=_s(a.get("slug")),
+                    section=_s(a.get("section") or "list"),
+                    created_at=a.get("created_at") or datetime.utcnow(),
+                )
+                _db.session.add(rec)
+                total += 1
+            _db.session.commit()
+            return total
+
+        # 2) Сырой SQL (если модели нет)
+        # Подставь реальное имя таблицы, если у тебя другое:
+        table = "articles"
+        for a in articles:
+            _db.session.execute(
+                sql_text(
+                    f"""INSERT INTO {table}
+                        (title, text, tags, slug, section, created_at)
+                        VALUES (:title, :text, :tags, :slug, :section, :created_at)"""
+                ),
+                {
+                    "title": _s(a.get("title")),
+                    "text": _s(a.get("text")),
+                    "tags": _s(a.get("tags")),
+                    "slug": _s(a.get("slug")),
+                    "section": _s(a.get("section") or "list"),
+                    "created_at": a.get("created_at") or datetime.utcnow(),
+                },
+            )
+            total += 1
+        _db.session.commit()
+        return total

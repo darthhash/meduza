@@ -28,4 +28,12 @@ except Exception:
     pass
 
 def create_app():
+    app.config['JSON_AS_ASCII'] = False
+    try:
+    # Flask 3.x
+        app.json.ensure_ascii = False
+    except Exception:
+        pass
     return app
+# app/__init__.py  (или где создаёшь app)
+
